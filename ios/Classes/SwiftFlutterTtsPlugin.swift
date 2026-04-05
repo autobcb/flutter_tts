@@ -177,7 +177,7 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
     } else {
       utterance.voice = AVSpeechSynthesisVoice(language: self.language)
     }
-    utterance.rate = self.rate
+    //utterance.rate = self.rate
     utterance.volume = self.volume
     utterance.pitchMultiplier = self.pitch
 
