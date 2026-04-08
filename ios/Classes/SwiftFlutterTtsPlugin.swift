@@ -222,28 +222,33 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
         }
 
 
-          // Ensure buffer format matches file format
-          if let converter = AVAudioConverter(from: pcmBuffer.format, to: output!.processingFormat) {
-            let convertedBuffer = AVAudioPCMBuffer(pcmFormat: output!.processingFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength))!
-            convertedBuffer.frameLength = pcmBuffer.frameLength
-            
-            var error: NSError?
-            let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
-              outStatus.pointee = .haveData
-              return pcmBuffer
-            }
-            
-            converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
-            
-            if error == nil {
-              try! output!.write(from: convertedBuffer)
-            } else {
-              NSLog("Error converting audio: \(error!.localizedDescription)")
-              failed = true
-            }
-          } else {
-            // Fallback if converter creation fails
+          // For iOS 17+, use direct write
+          if #available(iOS 17.0, *) {
             try! output!.write(from: pcmBuffer)
+          } else {
+            // For iOS 16, use format conversion to avoid crashes
+            if let converter = AVAudioConverter(from: pcmBuffer.format, to: output!.processingFormat) {
+              let convertedBuffer = AVAudioPCMBuffer(pcmFormat: output!.processingFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength))!
+              convertedBuffer.frameLength = pcmBuffer.frameLength
+              
+              var error: NSError?
+              let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+                outStatus.pointee = .haveData
+                return pcmBuffer
+              }
+              
+              converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+              
+              if error == nil {
+                try! output!.write(from: convertedBuffer)
+              } else {
+                NSLog("Error converting audio: \(error!.localizedDescription)")
+                failed = true
+              }
+            } else {
+              // Fallback if converter creation fails
+              try! output!.write(from: pcmBuffer)
+            }
           }
         }
       }
