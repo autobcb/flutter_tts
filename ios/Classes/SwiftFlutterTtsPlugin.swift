@@ -211,17 +211,8 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
               }
               output = try AVAudioFile(forWriting: fileURL, settings: audioFormat.settings)
             } else {
-              do {
-                output = try AVAudioFile(forWriting: fileURL, settings: pcmBuffer.format.settings)
-              } catch {
-                // Fallback to explicit format if direct settings fail
-                guard let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: pcmBuffer.format.sampleRate, channels: 1, interleaved: false) else {
-                  NSLog("Error creating audio format")
-                  failed = true
-                  return
-                }
-                output = try AVAudioFile(forWriting: fileURL, settings: audioFormat.settings)
-              }
+              // For iOS 16, use the original settings without specifying commonFormat
+              output = try AVAudioFile(forWriting: fileURL, settings: pcmBuffer.format.settings)
             }
           } catch {
               NSLog("Error creating AVAudioFile: \(error.localizedDescription)")
@@ -231,23 +222,35 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
         }
 
 
-          // Convert buffer format if necessary
-          if let convertedBuffer = AVAudioPCMBuffer(pcmFormat: output!.processingFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength)) {
-            convertedBuffer.frameLength = pcmBuffer.frameLength
-            let converter = AVAudioConverter(from: pcmBuffer.format, to: output!.processingFormat)
-            var error: NSError?
-            converter?.convert(to: convertedBuffer, error: &error) { _, outStatus in
-              outStatus.pointee = .haveData
-              return pcmBuffer
-            }
-            if error == nil {
-              try! output!.write(from: convertedBuffer)
-            } else {
-              NSLog("Error converting buffer: \(error!.localizedDescription)")
+          // For iOS 16, use a different approach to avoid format issues
+          if #available(iOS 17.0, *) {
+            try! output!.write(from: pcmBuffer)
+          } else {
+            // Use AVAudioEngine to ensure proper format conversion for iOS 16
+            let engine = AVAudioEngine()
+            let playerNode = AVAudioPlayerNode()
+            engine.attach(playerNode)
+            
+            let format = output!.processingFormat
+            engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+            
+            do {
+              try engine.start()
+              playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
+                // Write the buffer to file after playback
+                do {
+                  try output!.write(from: pcmBuffer)
+                } catch {
+                  NSLog("Error writing buffer to file: \(error.localizedDescription)")
+                  self?.failed = true
+                }
+                engine.stop()
+              }
+              playerNode.play()
+            } catch {
+              NSLog("Error using AVAudioEngine: \(error.localizedDescription)")
               failed = true
             }
-          } else {
-            try! output!.write(from: pcmBuffer)
           }
         }
       }
