@@ -222,36 +222,7 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
         }
 
 
-          // For iOS 16, use a different approach to avoid format issues
-          if #available(iOS 17.0, *) {
-            try! output!.write(from: pcmBuffer)
-          } else {
-            // Use AVAudioEngine to ensure proper format conversion for iOS 16
-            let engine = AVAudioEngine()
-            let playerNode = AVAudioPlayerNode()
-            engine.attach(playerNode)
-            
-            let format = output!.processingFormat
-            engine.connect(playerNode, to: engine.mainMixerNode, format: format)
-            
-            do {
-              try engine.start()
-              playerNode.scheduleBuffer(pcmBuffer) { [weak self] in
-                // Write the buffer to file after playback
-                do {
-                  try output!.write(from: pcmBuffer)
-                } catch {
-                  NSLog("Error writing buffer to file: \(error.localizedDescription)")
-                  self?.failed = true
-                }
-                engine.stop()
-              }
-              playerNode.play()
-            } catch {
-              NSLog("Error using AVAudioEngine: \(error.localizedDescription)")
-              failed = true
-            }
-          }
+          try! output!.write(from: pcmBuffer)
         }
       }
     } else {
