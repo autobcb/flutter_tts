@@ -211,12 +211,17 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
               }
               output = try AVAudioFile(forWriting: fileURL, settings: audioFormat.settings)
             } else {
-              guard let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: pcmBuffer.format.sampleRate, channels: pcmBuffer.format.channelCount, interleaved: pcmBuffer.format.isInterleaved) else {
-                NSLog("Error creating audio format")
-                failed = true
-                return
+              do {
+                output = try AVAudioFile(forWriting: fileURL, settings: pcmBuffer.format.settings)
+              } catch {
+                // Fallback to explicit format if direct settings fail
+                guard let audioFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: pcmBuffer.format.sampleRate, channels: 1, interleaved: false) else {
+                  NSLog("Error creating audio format")
+                  failed = true
+                  return
+                }
+                output = try AVAudioFile(forWriting: fileURL, settings: audioFormat.settings)
               }
-              output = try AVAudioFile(forWriting: fileURL, settings: audioFormat.settings)
             }
           } catch {
               NSLog("Error creating AVAudioFile: \(error.localizedDescription)")
@@ -226,7 +231,24 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
         }
 
 
-          try! output!.write(from: pcmBuffer)
+          // Convert buffer format if necessary
+          if let convertedBuffer = AVAudioPCMBuffer(pcmFormat: output!.processingFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength)) {
+            convertedBuffer.frameLength = pcmBuffer.frameLength
+            let converter = AVAudioConverter(from: pcmBuffer.format, to: output!.processingFormat)
+            var error: NSError?
+            converter?.convert(to: convertedBuffer, error: &error) { _, outStatus in
+              outStatus.pointee = .haveData
+              return pcmBuffer
+            }
+            if error == nil {
+              try! output!.write(from: convertedBuffer)
+            } else {
+              NSLog("Error converting buffer: \(error!.localizedDescription)")
+              failed = true
+            }
+          } else {
+            try! output!.write(from: pcmBuffer)
+          }
         }
       }
     } else {
