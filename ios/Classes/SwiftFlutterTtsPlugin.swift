@@ -222,7 +222,29 @@ public class SwiftFlutterTtsPlugin: NSObject, FlutterPlugin, AVSpeechSynthesizer
         }
 
 
-          try! output!.write(from: pcmBuffer)
+          // Ensure buffer format matches file format
+          if let converter = AVAudioConverter(from: pcmBuffer.format, to: output!.processingFormat) {
+            let convertedBuffer = AVAudioPCMBuffer(pcmFormat: output!.processingFormat, frameCapacity: AVAudioFrameCount(pcmBuffer.frameLength))!
+            convertedBuffer.frameLength = pcmBuffer.frameLength
+            
+            var error: NSError?
+            let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+              outStatus.pointee = .haveData
+              return pcmBuffer
+            }
+            
+            converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+            
+            if error == nil {
+              try! output!.write(from: convertedBuffer)
+            } else {
+              NSLog("Error converting audio: \(error!.localizedDescription)")
+              failed = true
+            }
+          } else {
+            // Fallback if converter creation fails
+            try! output!.write(from: pcmBuffer)
+          }
         }
       }
     } else {
